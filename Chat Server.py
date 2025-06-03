@@ -1,93 +1,121 @@
 import socket
 import threading
 import tkinter as tk
-from tkinter import scrolledtext
+from tkinter import scrolledtext, messagebox
+from datetime import datetime
 
 HOST = 'localhost'
 PORT = 12345
-CHAT_HISTORY_FILE = 'chat_history.txt'
 
-clients = []
+clients = {}  # socket: username
+banned_users = set()
 
-
-def save_message_to_file(message):
-#Append message to chat history file.
-    with open(CHAT_HISTORY_FILE, 'a', encoding='utf-8') as f:
-        f.write(message + "\n")
-
-
-def send_chat_history(client_socket):
- #Send previous chat messages to a newly connected client.
-    try:
-        with open(CHAT_HISTORY_FILE, 'r', encoding='utf-8') as f:
-            for line in f:
-                client_socket.send(line.strip().encode() + b'\n')
-    except FileNotFoundError:
-        pass  # No history exists yet
-
-
-def broadcast(message, sender_socket):
-    #Send message to all connected clients except the sender.
-    for client in clients:
-        if client != sender_socket:
+def broadcast(message, sender_socket=None):
+    for client_socket in list(clients):
+        if client_socket != sender_socket:
             try:
-                client.send(message)
+                client_socket.send(message.encode())
             except:
-                clients.remove(client)
+                disconnect_client(client_socket)
 
+def handle_client(client_socket, addr, chat_area, user_listbox):
+    try:
+        username = client_socket.recv(1024).decode()
+        if username in banned_users:
+            client_socket.send("You are banned.".encode())
+            client_socket.close()
+            return
 
-def handle_client(client_socket, addr, chat_area):
-    #Manage communication with a single client.
-    send_chat_history(client_socket)  # Send chat history on connection
+        clients[client_socket] = username
+        update_user_list(user_listbox)
+        chat_area.insert(tk.END, f"{username} connected\n")
+        broadcast(f"{username} has joined the chat.", client_socket)
 
-    while True:
-        try:
-            msg = client_socket.recv(1024)
+        while True:
+            msg = client_socket.recv(1024).decode()
             if not msg:
                 break
-            decoded_msg = msg.decode()
-            full_msg = f"{addr}: {decoded_msg}"
-            chat_area.insert(tk.END, full_msg + "\n")
-            save_message_to_file(full_msg)
-            broadcast(msg, client_socket)
-        except:
-            break
+            timestamped_msg = f"{msg}"
+            chat_area.insert(tk.END, timestamped_msg + "\n")
+            broadcast(timestamped_msg, client_socket)
+    except:
+        pass
+    finally:
+        disconnect_client(client_socket)
+        update_user_list(user_listbox)
+        chat_area.insert(tk.END, f"{clients.get(client_socket, 'Unknown')} disconnected\n")
 
-    client_socket.close()
-    if client_socket in clients:
-        clients.remove(client_socket)
-    disconnect_msg = f"{addr} disconnected"
-    chat_area.insert(tk.END, disconnect_msg + "\n")
-    save_message_to_file(disconnect_msg)
+def disconnect_client(client_socket):
+    username = clients.pop(client_socket, None)
+    try:
+        client_socket.close()
+    except:
+        pass
+    broadcast(f"{username} has left the chat.")
 
+def ban_user(user_listbox):
+    selected = user_listbox.curselection()
+    if selected:
+        username = user_listbox.get(selected)
+        banned_users.add(username)
+        for client_socket, user in list(clients.items()):
+            if user == username:
+                disconnect_client(client_socket)
+                break
+        update_user_list(user_listbox)
 
-def start_server(chat_area):
+def update_user_list(user_listbox):
+    user_listbox.delete(0, tk.END)
+    for user in clients.values():
+        user_listbox.insert(tk.END, user)
+
+def start_server(chat_area, user_listbox):
     def run():
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_socket.bind((HOST, PORT))
         server_socket.listen()
         chat_area.insert(tk.END, f"Server started on {HOST}:{PORT}\n")
-        save_message_to_file(f"Server started on {HOST}:{PORT}")
 
         while True:
             client_socket, addr = server_socket.accept()
-            clients.append(client_socket)
-            connection_msg = f"New connection: {addr}"
-            chat_area.insert(tk.END, connection_msg + "\n")
-            save_message_to_file(connection_msg)
-            threading.Thread(target=handle_client, args=(client_socket, addr, chat_area), daemon=True).start()
+            threading.Thread(target=handle_client, args=(client_socket, addr, chat_area, user_listbox), daemon=True).start()
 
     threading.Thread(target=run, daemon=True).start()
 
-
-# GUI Setup
+# GUI setup
 root = tk.Tk()
-root.title("Chat Server")
+root.title("Chat Server Admin Panel")
+root.geometry("700x400")
 
+# Chat display
 chat_area = scrolledtext.ScrolledText(root, width=60, height=20, state='normal')
-chat_area.pack(padx=10, pady=10)
+chat_area.pack(side=tk.LEFT, padx=10, pady=10, fill=tk.BOTH, expand=True)
 
-start_btn = tk.Button(root, text="Start Server", command=lambda: start_server(chat_area))
-start_btn.pack(pady=5)
+# Sidebar with user list and controls
+sidebar = tk.Frame(root)
+sidebar.pack(side=tk.RIGHT, padx=10, pady=10, fill=tk.Y)
+
+user_listbox = tk.Listbox(sidebar, height=15)
+user_listbox.pack(pady=5, fill=tk.BOTH)
+
+disconnect_btn = tk.Button(sidebar, text="Disconnect", command=lambda: kick_selected_user(user_listbox))
+disconnect_btn.pack(pady=5, fill=tk.X)
+
+ban_btn = tk.Button(sidebar, text="Ban User", command=lambda: ban_user(user_listbox))
+ban_btn.pack(pady=5, fill=tk.X)
+
+start_btn = tk.Button(sidebar, text="Start Server", command=lambda: start_server(chat_area, user_listbox))
+start_btn.pack(pady=5, fill=tk.X)
+
+def kick_selected_user(user_listbox):
+    selected = user_listbox.curselection()
+    if selected:
+        username = user_listbox.get(selected)
+        for client_socket, user in list(clients.items()):
+            if user == username:
+                disconnect_client(client_socket)
+                update_user_list(user_listbox)
+                chat_area.insert(tk.END, f"{username} was disconnected\n")
+                break
 
 root.mainloop()
