@@ -37,13 +37,13 @@ def display_message(chat_area, message, from_history=False):
 
 def receive_messages(chat_area):
     global connected
-    while True:
+    while connected:
         try:
             msg = client_socket.recv(1024).decode()
-            if msg == "/banned":
-                messagebox.showwarning("Banned", "You are banned from the server.")
-                root.destroy()
-                return
+            if msg.lower().startswith("you have been disconnected."):
+                display_message(chat_area, "❌ You were disconnected by the server.")
+                connected = False
+                break
             display_message(chat_area, msg)
         except:
             break
@@ -97,16 +97,15 @@ join_btn = tk.Button(top_frame, text="Join", bg="#00bfff", fg="white",
 join_btn.pack(side=tk.LEFT)
 
 chat_area = scrolledtext.ScrolledText(root, width=80, height=20, state='disabled', font=("Segoe UI", 10))
-chat_area.tag_configure('left', justify='left', foreground='blue')
+chat_area.tag_configure('left', justify='left', foreground='red')
 chat_area.tag_configure('right', justify='right', foreground='green')
 chat_area.pack(padx=10, pady=5)
 
 bottom_frame = tk.Frame(root, bg="#f0f8ff")
 bottom_frame.pack(pady=10)
 
-entry = tk.Entry(bottom_frame, width=50)
+entry = tk.Entry(bottom_frame, width=50, state='disabled')
 entry.pack(side=tk.LEFT, padx=5)
-entry.config(state='disabled')
 
 send_btn = tk.Button(bottom_frame, text="Send", bg="#32cd32", fg="white",
                      command=lambda: send_message(entry, chat_area))
