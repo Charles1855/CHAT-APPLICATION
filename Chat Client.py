@@ -3,6 +3,7 @@ import threading
 import tkinter as tk
 from tkinter import simpledialog
 import os
+from datetime import datetime
 
 HOST = 'localhost'
 PORT = 12345
@@ -16,20 +17,21 @@ root.withdraw()
 username = simpledialog.askstring("Username", "Enter your display name:")
 root.deiconify()
 
+def current_time():
+    return datetime.now().strftime("%H:%M")
+
 def save_message_to_file(message):
     with open(CHAT_HISTORY_FILE, 'a', encoding='utf-8') as f:
         f.write(message + "\n")
 
 def load_chat_history(chat_area):
-    """Load and display saved chat history with formatting."""
     if os.path.exists(CHAT_HISTORY_FILE):
         with open(CHAT_HISTORY_FILE, 'r', encoding='utf-8') as f:
             for line in f:
                 display_message(chat_area, line.strip(), from_history=True)
 
 def display_message(chat_area, message, from_history=False):
-    """Display messages with color and alignment."""
-    if message.startswith("You:") or message.startswith(f"{username}:"):
+    if message.startswith("You [") or message.startswith(f"{username} ["):
         tag = 'left'
         color = 'green'
     elif message.startswith("Connected to") or "disconnected" in message:
@@ -59,10 +61,11 @@ def receive_messages(chat_area):
 def send_message(entry, chat_area):
     msg = entry.get()
     if msg:
-        full_msg = f"{username}: {msg}"
+        timestamp = current_time()
+        full_msg = f"{username} [{timestamp}]: {msg}"
         try:
             client_socket.send(full_msg.encode())
-            display_message(chat_area, f"You: {msg}")
+            display_message(chat_area, f"You [{timestamp}]: {msg}")
             entry.delete(0, tk.END)
         except:
             display_message(chat_area, "Error: Could not send message")
