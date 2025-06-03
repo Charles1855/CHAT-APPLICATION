@@ -87,6 +87,21 @@ def stop_server(chat_area, start_btn, stop_btn):
     start_btn.config(state='normal')
     stop_btn.config(state='disabled')
 
+def disconnect_user(user_listbox, chat_area):
+    try:
+        selected = user_listbox.get(user_listbox.curselection())
+        for sock, name in list(clients.items()):
+            if name == selected:
+                sock.send("You have been disconnected by the server.".encode())
+                sock.close()
+                del clients[sock]
+                update_user_list(user_listbox)
+                broadcast(f"{name} was disconnected by the server.")
+                chat_area.insert(tk.END, f"{name} was disconnected.\n")
+                break
+    except:
+        messagebox.showerror("Error", "Please select a user to disconnect.")
+
 # GUI
 root = tk.Tk()
 root.title("Chat Server")
@@ -110,5 +125,9 @@ stop_btn = tk.Button(btn_frame, text="Stop Server", bg="#ff4500", fg="white", wi
                      command=lambda: stop_server(chat_area, start_btn, stop_btn))
 stop_btn.pack(pady=5)
 stop_btn.config(state='disabled')
+
+disconnect_btn = tk.Button(btn_frame, text="Disconnect User", bg="#ff8c00", fg="white", width=15,
+                           command=lambda: disconnect_user(user_listbox, chat_area))
+disconnect_btn.pack(pady=5)
 
 root.mainloop()
