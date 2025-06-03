@@ -1,7 +1,7 @@
 import socket
 import threading
 import tkinter as tk
-from tkinter import ttk, simpledialog, messagebox
+from tkinter import messagebox, scrolledtext
 import os
 from datetime import datetime
 
@@ -11,6 +11,7 @@ CHAT_HISTORY_FILE = 'client_chat_history.txt'
 
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 username = ""
+connected = False
 
 def current_time():
     return datetime.now().strftime("%H:%M")
@@ -26,7 +27,7 @@ def load_chat_history(chat_area):
                 display_message(chat_area, line.strip(), from_history=True)
 
 def display_message(chat_area, message, from_history=False):
-    tag = 'right' if message.startswith("You [") or message.startswith(f"{username} [") else 'left'
+    tag = 'right' if message.startswith("You [") else 'left'
     chat_area.config(state='normal')
     chat_area.insert(tk.END, message + "\n", tag)
     chat_area.config(state='disabled')
@@ -34,27 +35,22 @@ def display_message(chat_area, message, from_history=False):
     if not from_history:
         save_message(message)
 
-def update_user_list(user_listbox, user_list):
-    user_listbox.delete(0, tk.END)
-    for user in user_list:
-        user_listbox.insert(tk.END, user)
-
-def receive_messages(chat_area, user_listbox, status_label):
+def receive_messages(chat_area):
+    global connected
     while True:
         try:
             msg = client_socket.recv(1024).decode()
-            if msg.startswith("USERS:"):
-                users = msg[6:].split(",")
-                update_user_list(user_listbox, users)
-            else:
-                display_message(chat_area, msg)
+            if msg == "/banned":
+                messagebox.showwarning("Banned", "You are banned from the server.")
+                root.destroy()
+                return
+            display_message(chat_area, msg)
         except:
-            status_label.config(text="Disconnected")
             break
 
 def send_message(entry, chat_area):
     msg = entry.get()
-    if msg:
+    if msg and connected:
         timestamp = current_time()
         full_msg = f"{username} [{timestamp}]: {msg}"
         try:
@@ -64,83 +60,56 @@ def send_message(entry, chat_area):
         except:
             display_message(chat_area, "❌ Failed to send message")
 
-def disconnect_client(root):
-    try:
-        client_socket.send("/quit".encode())
-        client_socket.close()
-    except:
-        pass
-    root.destroy()
-
-def start_client(chat_area, user_listbox, status_label):
-    global username
+def start_client(name_entry, chat_area, entry, join_btn):
+    global username, connected
+    username = name_entry.get().strip()
+    if not username:
+        messagebox.showerror("Error", "Please enter a username.")
+        return
     try:
         client_socket.connect((HOST, PORT))
-        username = simpledialog.askstring("Username", "Enter your username:")
-        if not username:
-            raise Exception("Username required")
         client_socket.send(username.encode())
-        status_label.config(text=f"Connected as {username}")
-        display_message(chat_area, f"Connected to {HOST}:{PORT}")
+        connected = True
+        display_message(chat_area, f"✅ Connected to server as {username}")
+        name_entry.config(state='disabled')
+        entry.config(state='normal')
+        join_btn.config(state='disabled')
         load_chat_history(chat_area)
-        threading.Thread(target=receive_messages, args=(chat_area, user_listbox, status_label), daemon=True).start()
+        threading.Thread(target=receive_messages, args=(chat_area,), daemon=True).start()
     except Exception as e:
         display_message(chat_area, f"❌ Connection failed: {e}")
-        status_label.config(text="Connection failed")
 
-# GUI Setup
+# GUI
 root = tk.Tk()
 root.title("Chat Client")
-root.geometry("720x480")
-root.configure(bg="#f8f8f8")
+root.geometry("700x500")
+root.config(bg="#f0f8ff")
 
-# Main frames
-main_frame = tk.Frame(root, bg="#f8f8f8")
-main_frame.pack(expand=True, fill='both')
+top_frame = tk.Frame(root, bg="#f0f8ff")
+top_frame.pack(pady=10)
 
-chat_frame = tk.Frame(main_frame)
-chat_frame.pack(side=tk.LEFT, fill='both', expand=True, padx=(10, 5), pady=10)
+tk.Label(top_frame, text="Username:", bg="#f0f8ff").pack(side=tk.LEFT)
+name_entry = tk.Entry(top_frame, width=20)
+name_entry.pack(side=tk.LEFT, padx=5)
 
-sidebar = tk.Frame(main_frame, bg="#f0f0f0", width=150)
-sidebar.pack(side=tk.RIGHT, fill='y', padx=(5, 10), pady=10)
+join_btn = tk.Button(top_frame, text="Join", bg="#00bfff", fg="white",
+                     command=lambda: start_client(name_entry, chat_area, entry, join_btn))
+join_btn.pack(side=tk.LEFT)
 
-# Chat area
-chat_area = tk.Text(chat_frame, wrap='word', state='disabled', font=("Segoe UI", 10))
+chat_area = scrolledtext.ScrolledText(root, width=80, height=20, state='disabled', font=("Segoe UI", 10))
 chat_area.tag_configure('left', justify='left', foreground='blue')
 chat_area.tag_configure('right', justify='right', foreground='green')
-chat_area.pack(side=tk.LEFT, expand=True, fill='both')
+chat_area.pack(padx=10, pady=5)
 
-scrollbar = ttk.Scrollbar(chat_frame, command=chat_area.yview)
-scrollbar.pack(side=tk.RIGHT, fill='y')
-chat_area.config(yscrollcommand=scrollbar.set)
+bottom_frame = tk.Frame(root, bg="#f0f8ff")
+bottom_frame.pack(pady=10)
 
-# Entry and send
-input_frame = tk.Frame(root, bg="#f8f8f8")
-input_frame.pack(fill='x', padx=10, pady=(0, 10))
+entry = tk.Entry(bottom_frame, width=50)
+entry.pack(side=tk.LEFT, padx=5)
+entry.config(state='disabled')
 
-entry = ttk.Entry(input_frame)
-entry.pack(side=tk.LEFT, padx=(0, 5), fill='x', expand=True)
-entry.focus()
-
-send_btn = ttk.Button(input_frame, text="Send", command=lambda: send_message(entry, chat_area))
+send_btn = tk.Button(bottom_frame, text="Send", bg="#32cd32", fg="white",
+                     command=lambda: send_message(entry, chat_area))
 send_btn.pack(side=tk.LEFT)
 
-# Status & disconnect
-bottom_frame = tk.Frame(root, bg="#f8f8f8")
-bottom_frame.pack(fill='x', padx=10)
-
-status_label = tk.Label(bottom_frame, text="Connecting...", anchor='w', bg="#f8f8f8")
-status_label.pack(side=tk.LEFT)
-
-disconnect_btn = ttk.Button(bottom_frame, text="Disconnect", command=lambda: disconnect_client(root))
-disconnect_btn.pack(side=tk.RIGHT)
-
-# Sidebar user list
-tk.Label(sidebar, text="Online Users", bg="#f0f0f0", font=("Segoe UI", 10, "bold")).pack(pady=(0, 5))
-user_listbox = tk.Listbox(sidebar)
-user_listbox.pack(fill='y', expand=True)
-
-start_client(chat_area, user_listbox, status_label)
-
-root.protocol("WM_DELETE_WINDOW", lambda: disconnect_client(root))
 root.mainloop()
