@@ -2,6 +2,7 @@ import socket
 import threading
 import tkinter as tk
 from tkinter import simpledialog
+from tkinter import ttk
 import os
 from datetime import datetime
 
@@ -49,13 +50,14 @@ def display_message(chat_area, message, from_history=False):
     if not from_history:
         save_message_to_file(message)
 
-def receive_messages(chat_area):
+def receive_messages(chat_area, status_label):
     while True:
         try:
             msg = client_socket.recv(1024).decode()
             if msg:
                 display_message(chat_area, msg)
         except:
+            status_label.config(text="Disconnected")
             break
 
 def send_message(entry, chat_area):
@@ -70,35 +72,54 @@ def send_message(entry, chat_area):
         except:
             display_message(chat_area, "Error: Could not send message")
 
-def start_client(chat_area):
+def start_client(chat_area, status_label):
     try:
         client_socket.connect((HOST, PORT))
+        status_label.config(text=f"Connected as {username}")
         display_message(chat_area, f"Connected to server at {HOST}:{PORT}")
         load_chat_history(chat_area)
-        threading.Thread(target=receive_messages, args=(chat_area,), daemon=True).start()
+        threading.Thread(target=receive_messages, args=(chat_area, status_label), daemon=True).start()
     except:
         display_message(chat_area, "Connection failed")
+        status_label.config(text="Connection failed")
 
 # GUI Setup
 root.title(f"Chat Client - {username}")
+root.geometry("600x450")
+root.configure(bg="#f0f0f0")
 
-chat_area = tk.Text(root, width=60, height=20, wrap='word', state='disabled')
+# Frame for chat display
+chat_frame = ttk.Frame(root, padding=10)
+chat_frame.pack(expand=True, fill='both')
+
+chat_area = tk.Text(chat_frame, wrap='word', state='disabled', font=("Segoe UI", 10))
 chat_area.tag_configure('left', justify='left')
 chat_area.tag_configure('right', justify='right')
 chat_area.tag_configure('center', justify='center')
-
 chat_area.tag_configure('green', foreground='green')
 chat_area.tag_configure('blue', foreground='blue')
 chat_area.tag_configure('gray', foreground='gray')
+chat_area.pack(side=tk.LEFT, expand=True, fill='both')
 
-chat_area.pack(padx=10, pady=10)
+scrollbar = ttk.Scrollbar(chat_frame, command=chat_area.yview)
+scrollbar.pack(side=tk.RIGHT, fill='y')
+chat_area.config(yscrollcommand=scrollbar.set)
 
-entry = tk.Entry(root, width=40)
-entry.pack(side=tk.LEFT, padx=10, pady=5)
+# Frame for entry and send button
+input_frame = ttk.Frame(root, padding=10)
+input_frame.pack(fill='x')
 
-send_btn = tk.Button(root, text="Send", command=lambda: send_message(entry, chat_area))
-send_btn.pack(side=tk.LEFT)
+entry = ttk.Entry(input_frame, width=50)
+entry.pack(side=tk.LEFT, padx=(0, 5), expand=True, fill='x')
+entry.focus()
 
-start_client(chat_area)
+send_btn = ttk.Button(input_frame, text="Send", command=lambda: send_message(entry, chat_area))
+send_btn.pack(side=tk.RIGHT)
+
+# Status bar
+status_label = ttk.Label(root, text="Connecting...", anchor='w', padding=5, relief="sunken")
+status_label.pack(fill='x', side=tk.BOTTOM)
+
+start_client(chat_area, status_label)
 
 root.mainloop()
