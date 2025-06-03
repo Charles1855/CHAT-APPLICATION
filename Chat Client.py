@@ -1,108 +1,78 @@
 import socket
 import threading
 import tkinter as tk
-from tkinter import scrolledtext
+from tkinter import scrolledtext, simpledialog
+import os
 
 HOST = 'localhost'
 PORT = 12345
+CHAT_HISTORY_FILE = 'client_chat_history.txt'
 
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-username = ""
-typing = False
-typing_timer = None
 
-def receive_messages(chat_area, typing_label):
+# Prompt for username
+root = tk.Tk()
+root.withdraw()  # Hide while prompting
+username = simpledialog.askstring("Username", "Enter your display name:")
+root.deiconify()
+
+def save_message_to_file(message):
+    """Append message to local chat history file."""
+    with open(CHAT_HISTORY_FILE, 'a', encoding='utf-8') as f:
+        f.write(message + "\n")
+
+def load_chat_history(chat_area):
+    """Load chat history from file into the chat area."""
+    if os.path.exists(CHAT_HISTORY_FILE):
+        with open(CHAT_HISTORY_FILE, 'r', encoding='utf-8') as f:
+            for line in f:
+                chat_area.insert(tk.END, line)
+
+def receive_messages(chat_area):
+    """Receive and display messages from the server."""
     while True:
         try:
             msg = client_socket.recv(1024).decode()
-            if msg.startswith("TYPING_START:"):
-                user = msg.split(":", 1)[1]
-                if user != username:
-                    typing_label.config(text=f"{user} is typing...")
-            elif msg.startswith("TYPING_STOP:"):
-                user = msg.split(":", 1)[1]
-                if user != username:
-                    typing_label.config(text="")
-            else:
+            if msg:
                 chat_area.insert(tk.END, msg + '\n')
+                save_message_to_file(msg)
         except:
             break
 
-def send_message(entry, chat_area, typing_label):
-    global typing
-    msg = entry.get().strip()
+def send_message(entry, chat_area):
+    """Send a message and display it locally."""
+    msg = entry.get()
     if msg:
+        full_msg = f"{username}: {msg}"
         try:
-            client_socket.send(msg.encode())
+            client_socket.send(full_msg.encode())
             chat_area.insert(tk.END, f"You: {msg}\n")
+            save_message_to_file(f"You: {msg}")
             entry.delete(0, tk.END)
-            stop_typing()
-            typing_label.config(text="")
         except:
-            chat_area.insert(tk.END, "Failed to send message\n")
+            chat_area.insert(tk.END, "Error: Could not send message\n")
 
-def on_typing(event):
-    global typing, typing_timer
-    if not typing:
-        typing = True
-        client_socket.send(f"TYPING_START:{username}".encode())
-
-    if typing_timer:
-        root.after_cancel(typing_timer)
-    typing_timer = root.after(20000, stop_typing)
-
-def stop_typing():
-    global typing
-    if typing:
-        typing = False
-        try:
-            client_socket.send(f"TYPING_STOP:{username}".encode())
-        except:
-            pass
-
-def connect(chat_area, typing_label, username_entry, connect_btn):
-    global username
-    username = username_entry.get().strip()
-    if not username:
-        chat_area.insert(tk.END, "Enter a username.\n")
-        return
-
+def start_client(chat_area):
     try:
         client_socket.connect((HOST, PORT))
-        client_socket.send(username.encode())
-        chat_area.insert(tk.END, f"Connected as {username}\n")
-        threading.Thread(target=receive_messages, args=(chat_area, typing_label), daemon=True).start()
-        connect_btn.config(state=tk.DISABLED)
+        chat_area.insert(tk.END, f"Connected to server at {HOST}:{PORT}\n")
+        load_chat_history(chat_area)
+        threading.Thread(target=receive_messages, args=(chat_area,), daemon=True).start()
     except:
-        chat_area.insert(tk.END, "Failed to connect to server.\n")
+        chat_area.insert(tk.END, "Connection failed\n")
 
-# GUI setup
-root = tk.Tk()
+# GUI Setup
 root.title("Chat Client")
 
-chat_area = scrolledtext.ScrolledText(root, width=60, height=20)
-chat_area.pack(padx=10, pady=5)
+chat_area = scrolledtext.ScrolledText(root, width=60, height=20, state='normal')
+chat_area.pack(padx=10, pady=10)
 
-typing_label = tk.Label(root, text="", fg="gray")
-typing_label.pack()
+entry = tk.Entry(root, width=40)
+entry.pack(side=tk.LEFT, padx=10, pady=5)
 
-username_frame = tk.Frame(root)
-username_frame.pack(pady=2)
-tk.Label(username_frame, text="Username:").pack(side=tk.LEFT)
-username_entry = tk.Entry(username_frame, width=20)
-username_entry.pack(side=tk.LEFT)
+send_btn = tk.Button(root, text="Send", command=lambda: send_message(entry, chat_area))
+send_btn.pack(side=tk.LEFT)
 
-entry_frame = tk.Frame(root)
-entry_frame.pack(pady=5)
-
-entry = tk.Entry(entry_frame, width=40)
-entry.pack(side=tk.LEFT, padx=5)
-entry.bind("<KeyRelease>", on_typing)
-
-send_button = tk.Button(entry_frame, text="Send", command=lambda: send_message(entry, chat_area, typing_label))
-send_button.pack(side=tk.LEFT)
-
-connect_button = tk.Button(root, text="Connect", command=lambda: connect(chat_area, typing_label, username_entry, connect_button))
-connect_button.pack()
+start_client(chat_area)
 
 root.mainloop()
