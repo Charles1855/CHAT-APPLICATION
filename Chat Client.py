@@ -1,7 +1,7 @@
 import socket
 import threading
 import tkinter as tk
-from tkinter import scrolledtext, simpledialog
+from tkinter import simpledialog
 import os
 
 HOST = 'localhost'
@@ -16,32 +16,36 @@ root.withdraw()
 username = simpledialog.askstring("Username", "Enter your display name:")
 root.deiconify()
 
-
 def save_message_to_file(message):
     with open(CHAT_HISTORY_FILE, 'a', encoding='utf-8') as f:
         f.write(message + "\n")
 
-
 def load_chat_history(chat_area):
-    """Load saved chat history and align based on sender."""
+    """Load and display saved chat history with formatting."""
     if os.path.exists(CHAT_HISTORY_FILE):
         with open(CHAT_HISTORY_FILE, 'r', encoding='utf-8') as f:
             for line in f:
                 display_message(chat_area, line.strip(), from_history=True)
 
-
 def display_message(chat_area, message, from_history=False):
-    """Display messages with alignment."""
-    if message.startswith(f"{username}:") or message.startswith("You:"):
+    """Display messages with color and alignment."""
+    if message.startswith("You:") or message.startswith(f"{username}:"):
         tag = 'left'
+        color = 'green'
+    elif message.startswith("Connected to") or "disconnected" in message:
+        tag = 'center'
+        color = 'gray'
     else:
         tag = 'right'
+        color = 'blue'
 
-    chat_area.insert(tk.END, message + '\n', tag)
+    chat_area.config(state='normal')
+    chat_area.insert(tk.END, message + "\n", (tag, color))
+    chat_area.config(state='disabled')
+    chat_area.see(tk.END)
 
     if not from_history:
         save_message_to_file(message)
-
 
 def receive_messages(chat_area):
     while True:
@@ -51,7 +55,6 @@ def receive_messages(chat_area):
                 display_message(chat_area, msg)
         except:
             break
-
 
 def send_message(entry, chat_area):
     msg = entry.get()
@@ -64,7 +67,6 @@ def send_message(entry, chat_area):
         except:
             display_message(chat_area, "Error: Could not send message")
 
-
 def start_client(chat_area):
     try:
         client_socket.connect((HOST, PORT))
@@ -74,14 +76,18 @@ def start_client(chat_area):
     except:
         display_message(chat_area, "Connection failed")
 
-
 # GUI Setup
 root.title(f"Chat Client - {username}")
 
-chat_area = tk.Text(root, width=60, height=20, wrap='word')
+chat_area = tk.Text(root, width=60, height=20, wrap='word', state='disabled')
 chat_area.tag_configure('left', justify='left')
 chat_area.tag_configure('right', justify='right')
-chat_area.config(state='normal')
+chat_area.tag_configure('center', justify='center')
+
+chat_area.tag_configure('green', foreground='green')
+chat_area.tag_configure('blue', foreground='blue')
+chat_area.tag_configure('gray', foreground='gray')
+
 chat_area.pack(padx=10, pady=10)
 
 entry = tk.Entry(root, width=40)
