@@ -1,13 +1,13 @@
-# Python Chat Application (Client-Server with GUI)
+ Python Chat Application 
 
 This is a Python-based client-server chat application that allows multiple users to connect and exchange messages over a local network using sockets and Tkinter. The application supports real-time messaging, typing indicators, chat history, and server controls (start, stop, disconnect user).
 
-## 🖧 How IP Address and Port Work
+How IP Address and Port Work
 
 - **IP Address**: Uniquely identifies a device on a network. The server listens on an IP (e.g., `192.168.1.100`) to accept incoming connections.
 - **Port**: A communication endpoint on a device. Both client and server must use the same port (e.g., `12345`) to establish a connection.
 
-## 📦 Features
+Features
 
 - GUI for both client and server
 - Real-time messaging
@@ -17,28 +17,14 @@ This is a Python-based client-server chat application that allows multiple users
   - Start/Stop listening
   - Disconnect specific users
 - Cross-laptop chat using Ethernet or Wi-Fi LAN
-
----
-
-## 📁 File Structure
-
-```
-├── client.py         # Client-side chat program
-├── server.py         # Server-side chat controller
-├── README.md         # This file
-├── client_chat_history.txt  # Auto-created file for saving chat logs
-```
-
----
-
-## 🔧 Setup Instructions
-
-### Requirements
+ 
+Setup Instructions
+Requirements
 
 - Python 3.x
 - Standard libraries (`socket`, `tkinter`, etc.)
 
-### On the Server Laptop
+On the Server Laptop
 
 1. Find the server's IP address (e.g., run `ipconfig` on Windows or `ifconfig` on Linux/Mac).
 2. Open `server.py` and run it:
@@ -46,20 +32,20 @@ This is a Python-based client-server chat application that allows multiple users
    python server.py
    ```
 
-### On the Client Laptop(s)
+On the Client Laptop(s)
 
 1. Make sure the server and clients are on the **same network** (via Wi-Fi or Ethernet).
 2. Open and run `client.py`:
    ```bash
    python client.py
    ```
-3. Enter the **server's IP address**, **port**, and your **username** to join the chat.
+3. Enter the server's IP address and your username to join the chat.
 
 ---
 
-## 🔍 Key Functions Overview
+Key Functions Overview
 
-### `server.py`
+`server.py`
 
 - `start_server()`: Starts listening on `0.0.0.0:PORT` and accepts new clients.
 - `broadcast()`: Sends messages to all clients except the sender.
@@ -67,7 +53,7 @@ This is a Python-based client-server chat application that allows multiple users
 - `disconnect_user()`: Allows server admin to remove a specific user.
 - `stop_server()`: Stops server and closes all connections.
 
-### `client.py`
+`client.py`
 
 - `start_client()`: Connects to server using IP and port provided by user.
 - `receive_messages()`: Continuously listens for server messages.
@@ -75,9 +61,8 @@ This is a Python-based client-server chat application that allows multiple users
 - `load_chat_history()`: Loads messages from previous sessions.
 - `display_message()`: Shows messages with formatting in the GUI.
 
----
 
-## 🔗 Example Scenario
+Example Scenario
 
 1. **Server IP**: `192.168.1.5`
 2. **Port**: `12345`
@@ -85,24 +70,11 @@ This is a Python-based client-server chat application that allows multiple users
 4. **Client 2 IP**: `192.168.1.7`, connects with username `Bob`
 5. Both clients send and receive messages from the server which relays them to everyone.
 
----
 
-## Tips
-
-- If firewall blocks connection, allow Python through the firewall.
-- Ensure both devices are connected to the same **network segment**.
-- Use Ethernet for more stable connection when testing.
-
----
-
-##  Optional Enhancements
+Optional Enhancements
 
 - Add encryption (TLS sockets)
 - Add file sharing
 - Improve UI with emojis or themes
-
----
-
-##  License
 
 This project is provided for educational purposes. Free to modify and redistribute.
