@@ -5,7 +5,6 @@ from tkinter import messagebox, scrolledtext
 import os
 from datetime import datetime
 
-HOST = 'localhost'
 PORT = 12345
 CHAT_HISTORY_FILE = 'client_chat_history.txt'
 
@@ -37,13 +36,13 @@ def display_message(chat_area, message, from_history=False):
 
 def receive_messages(chat_area):
     global connected
-    while connected:
+    while True:
         try:
             msg = client_socket.recv(1024).decode()
-            if msg.lower().startswith("you have been disconnected."):
-                display_message(chat_area, "❌ You were disconnected by the server.")
-                connected = False
-                break
+            if msg == "/banned":
+                messagebox.showwarning("Banned", "You are banned from the server.")
+                root.destroy()
+                return
             display_message(chat_area, msg)
         except:
             break
@@ -60,18 +59,24 @@ def send_message(entry, chat_area):
         except:
             display_message(chat_area, "❌ Failed to send message")
 
-def start_client(name_entry, chat_area, entry, join_btn):
+def start_client(ip_entry, name_entry, chat_area, entry, join_btn):
     global username, connected
     username = name_entry.get().strip()
+    server_ip = ip_entry.get().strip()
+
+    if not server_ip:
+        messagebox.showerror("Error", "Please enter the server IP address.")
+        return
     if not username:
         messagebox.showerror("Error", "Please enter a username.")
         return
     try:
-        client_socket.connect((HOST, PORT))
+        client_socket.connect((server_ip, PORT))
         client_socket.send(username.encode())
         connected = True
-        display_message(chat_area, f"✅ Connected to server as {username}")
+        display_message(chat_area, f"✅ Connected to server at {server_ip} as {username}")
         name_entry.config(state='disabled')
+        ip_entry.config(state='disabled')
         entry.config(state='normal')
         join_btn.config(state='disabled')
         load_chat_history(chat_area)
@@ -88,24 +93,30 @@ root.config(bg="#f0f8ff")
 top_frame = tk.Frame(root, bg="#f0f8ff")
 top_frame.pack(pady=10)
 
+tk.Label(top_frame, text="Server IP:", bg="#f0f8ff").pack(side=tk.LEFT)
+ip_entry = tk.Entry(top_frame, width=15)
+ip_entry.pack(side=tk.LEFT, padx=5)
+ip_entry.insert(0, "127.0.0.1")  # Default to localhost
+
 tk.Label(top_frame, text="Username:", bg="#f0f8ff").pack(side=tk.LEFT)
-name_entry = tk.Entry(top_frame, width=20)
+name_entry = tk.Entry(top_frame, width=15)
 name_entry.pack(side=tk.LEFT, padx=5)
 
 join_btn = tk.Button(top_frame, text="Join", bg="#00bfff", fg="white",
-                     command=lambda: start_client(name_entry, chat_area, entry, join_btn))
-join_btn.pack(side=tk.LEFT)
+                     command=lambda: start_client(ip_entry, name_entry, chat_area, entry, join_btn))
+join_btn.pack(side=tk.LEFT, padx=5)
 
 chat_area = scrolledtext.ScrolledText(root, width=80, height=20, state='disabled', font=("Segoe UI", 10))
-chat_area.tag_configure('left', justify='left', foreground='red')
+chat_area.tag_configure('left', justify='left', foreground='blue')
 chat_area.tag_configure('right', justify='right', foreground='green')
 chat_area.pack(padx=10, pady=5)
 
 bottom_frame = tk.Frame(root, bg="#f0f8ff")
 bottom_frame.pack(pady=10)
 
-entry = tk.Entry(bottom_frame, width=50, state='disabled')
+entry = tk.Entry(bottom_frame, width=50)
 entry.pack(side=tk.LEFT, padx=5)
+entry.config(state='disabled')
 
 send_btn = tk.Button(bottom_frame, text="Send", bg="#32cd32", fg="white",
                      command=lambda: send_message(entry, chat_area))
