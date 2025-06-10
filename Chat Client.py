@@ -3,8 +3,7 @@ import threading
 import tkinter as tk
 from tkinter import simpledialog, messagebox
 from datetime import datetime
-import sqlite3
-import os
+import json
 
 class ChatClient:
     def __init__(self, master):
@@ -12,11 +11,11 @@ class ChatClient:
         master.title("TCP Chat Client")
         master.configure(bg="#f0f0f0")
 
-        # Chat area
+        # Chat display area
         self.chat_area = tk.Text(master, state='disabled', wrap=tk.WORD, bg="#ffffff", fg="#000000", font=("Segoe UI", 10))
         self.chat_area.pack(padx=10, pady=5, fill=tk.BOTH, expand=True)
 
-        # Message input
+        # Entry and Send Button
         self.entry = tk.Entry(master, width=40, font=("Segoe UI", 10))
         self.entry.pack(side=tk.LEFT, padx=(10, 0), pady=10)
         self.entry.bind("<Return>", self.send_message)
@@ -24,13 +23,13 @@ class ChatClient:
         self.send_button = tk.Button(master, text="Send", command=self.send_message, bg="#4caf50", fg="white", font=("Segoe UI", 10, "bold"))
         self.send_button.pack(side=tk.LEFT, padx=10, pady=10)
 
-        # Text tag styles
-        self.chat_area.tag_config("left", foreground="#800080", justify='left')   # Purple for others
-        self.chat_area.tag_config("right", foreground="#008000", justify='right') # Green for self
+        # Tags
+        self.chat_area.tag_config("left", foreground="#800080", justify='left')   # Purple
+        self.chat_area.tag_config("right", foreground="#008000", justify='right') # Green
         self.chat_area.tag_config("time_left", foreground="#999999", font=("Segoe UI", 8, "italic"), justify='left')
         self.chat_area.tag_config("time_right", foreground="#999999", font=("Segoe UI", 8, "italic"), justify='right')
 
-        # Get user info
+        # User and server info
         self.username = simpledialog.askstring("Username", "Enter your name:")
         self.server_ip = simpledialog.askstring("Server IP", "Enter Server IP address:")
         self.port = 12345
@@ -40,8 +39,8 @@ class ChatClient:
             master.destroy()
             return
 
-        # Setup database
-        self.setup_database()
+        # Load chat history from file
+        self.chat_history_file = "chat_history.txt"
         self.load_chat_history()
 
         # Connect to server
@@ -53,80 +52,83 @@ class ChatClient:
             master.destroy()
             return
 
-        # Start receiving thread
         threading.Thread(target=self.receive_messages, daemon=True).start()
-
-        # Handle window close
         master.protocol("WM_DELETE_WINDOW", self.close_connection)
 
-    def setup_database(self):
-        self.db_conn = sqlite3.connect("chat_history.db")
-        self.db_cursor = self.db_conn.cursor()
-        self.db_cursor.execute("""
-            CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                sender TEXT,
-                message TEXT,
-                timestamp TEXT
-            )
-        """)
-        self.db_conn.commit()
-
     def load_chat_history(self):
-        self.chat_area.config(state='normal')
-        self.db_cursor.execute("SELECT sender, message, timestamp FROM messages")
-        for sender, message, timestamp in self.db_cursor.fetchall():
-            align = "right" if sender == self.username else "left"
-            self.chat_area.insert(tk.END, f"{sender}: {message}\n", align)
-            self.chat_area.insert(tk.END, f"{' ' * (4 if align == 'left' else 20)}[{timestamp}]\n", f"time_{align}")
-        self.chat_area.config(state='disabled')
-        self.chat_area.yview(tk.END)
+        try:
+            with open(self.chat_history_file, "r", encoding="utf-8") as f:
+                self.chat_area.config(state='normal')
+                for line in f:
+                    self.chat_area.insert(tk.END, line)
+                self.chat_area.config(state='disabled')
+                self.chat_area.yview(tk.END)
+        except FileNotFoundError:
+            # No history yet, ignore
+            pass
 
-    def save_message_to_db(self, sender, message, timestamp):
-        self.db_cursor.execute("INSERT INTO messages (sender, message, timestamp) VALUES (?, ?, ?)",
-                               (sender, message, timestamp))
-        self.db_conn.commit()
+    def save_message_to_file(self, msg):
+        try:
+            with open(self.chat_history_file, "a", encoding="utf-8") as f:
+                f.write(msg + "\n")
+        except Exception as e:
+            print(f"Error writing to chat history file: {e}")
 
     def send_message(self, event=None):
         msg = self.entry.get().strip()
         if msg:
             timestamp = datetime.now().strftime("%H:%M:%S")
-            full_msg = f"{self.username}: {msg}"
+            data = json.dumps({"sender": self.username, "message": msg}) + "\n"  # Append newline delimiter
             try:
-                self.client_socket.sendall(full_msg.encode('utf-8'))
-                self.display_message(f"You: {msg}", timestamp, align="right")
-                self.save_message_to_db(self.username, msg, timestamp)
+                self.client_socket.sendall(data.encode('utf-8'))
+                display_msg = f"You: {msg}\n{' ' * 20}[{timestamp}]\n"
+                self.display_message(display_msg, align="right")
+                self.save_message_to_file(display_msg)
                 self.entry.delete(0, tk.END)
-            except:
-                messagebox.showerror("Send Failed", "Message could not be sent.")
-                self.master.destroy()
+            except Exception as e:
+                print(f"Send error: {e}")
+                messagebox.showerror("Send Failed", f"Message could not be sent:\n{e}")
+                self.close_connection()
 
     def receive_messages(self):
+        buffer = ""
         while True:
             try:
-                msg = self.client_socket.recv(4096).decode('utf-8')
-                if not msg:
+                data = self.client_socket.recv(4096)
+                if not data:
+                    print("Server closed connection.")
                     break
-                timestamp = datetime.now().strftime("%H:%M:%S")
-                sender, message = msg.split(":", 1)
-                self.display_message(msg, timestamp, align="left")
-                self.save_message_to_db(sender.strip(), message.strip(), timestamp)
-            except:
+                buffer += data.decode('utf-8')
+                while '\n' in buffer:
+                    line, buffer = buffer.split('\n', 1)
+                    if not line.strip():
+                        continue
+                    try:
+                        msg_data = json.loads(line)
+                        sender = msg_data.get("sender", "Unknown")
+                        message = msg_data.get("message", "")
+                        timestamp = datetime.now().strftime("%H:%M:%S")
+                        display_msg = f"{sender}: {message}\n{' ' * 4}[{timestamp}]\n"
+                        self.display_message(display_msg, align="left")
+                        self.save_message_to_file(display_msg)
+                    except json.JSONDecodeError as e:
+                        print(f"JSON decode error: {e} with data: {line}")
+            except Exception as e:
+                print(f"Receive error: {e}")
                 break
         self.client_socket.close()
         self.master.quit()
 
-    def display_message(self, msg, timestamp, align="left"):
+    def display_message(self, msg, align="left"):
         self.chat_area.config(state='normal')
-        self.chat_area.insert(tk.END, msg + "\n", align)
-        self.chat_area.insert(tk.END, f"{' ' * (4 if align == 'left' else 20)}[{timestamp}]\n", f"time_{align}")
+        tag = "right" if align == "right" else "left"
+        self.chat_area.insert(tk.END, msg, tag)
         self.chat_area.yview(tk.END)
         self.chat_area.config(state='disabled')
 
     def close_connection(self):
         try:
             self.client_socket.close()
-            self.db_conn.close()
         except:
             pass
         self.master.destroy()
