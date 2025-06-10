@@ -1,125 +1,137 @@
 import socket
 import threading
 import tkinter as tk
-from tkinter import messagebox, scrolledtext
-import os
+from tkinter import simpledialog, messagebox
 from datetime import datetime
+import sqlite3
+import os
 
-PORT = 12345
-CHAT_HISTORY_FILE = 'client_chat_history.txt'
+class ChatClient:
+    def __init__(self, master):
+        self.master = master
+        master.title("TCP Chat Client")
+        master.configure(bg="#f0f0f0")
 
-client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-username = ""
-connected = False
+        # Chat area
+        self.chat_area = tk.Text(master, state='disabled', wrap=tk.WORD, bg="#ffffff", fg="#000000", font=("Segoe UI", 10))
+        self.chat_area.pack(padx=10, pady=5, fill=tk.BOTH, expand=True)
 
-def current_time():
-    return datetime.now().strftime("%H:%M")
+        # Message input
+        self.entry = tk.Entry(master, width=40, font=("Segoe UI", 10))
+        self.entry.pack(side=tk.LEFT, padx=(10, 0), pady=10)
+        self.entry.bind("<Return>", self.send_message)
 
-def save_message(message):
-    with open(CHAT_HISTORY_FILE, 'a', encoding='utf-8') as f:
-        f.write(message + '\n')
+        self.send_button = tk.Button(master, text="Send", command=self.send_message, bg="#4caf50", fg="white", font=("Segoe UI", 10, "bold"))
+        self.send_button.pack(side=tk.LEFT, padx=10, pady=10)
 
-def load_chat_history(chat_area):
-    if os.path.exists(CHAT_HISTORY_FILE):
-        with open(CHAT_HISTORY_FILE, 'r', encoding='utf-8') as f:
-            for line in f:
-                display_message(chat_area, line.strip(), from_history=True)
+        # Text tag styles
+        self.chat_area.tag_config("left", foreground="#800080", justify='left')   # Purple for others
+        self.chat_area.tag_config("right", foreground="#008000", justify='right') # Green for self
+        self.chat_area.tag_config("time_left", foreground="#999999", font=("Segoe UI", 8, "italic"), justify='left')
+        self.chat_area.tag_config("time_right", foreground="#999999", font=("Segoe UI", 8, "italic"), justify='right')
 
-def display_message(chat_area, message, from_history=False):
-    tag = 'right' if message.startswith("You [") else 'left'
-    chat_area.config(state='normal')
-    chat_area.insert(tk.END, message + "\n", tag)
-    chat_area.config(state='disabled')
-    chat_area.see(tk.END)
-    if not from_history:
-        save_message(message)
+        # Get user info
+        self.username = simpledialog.askstring("Username", "Enter your name:")
+        self.server_ip = simpledialog.askstring("Server IP", "Enter Server IP address:")
+        self.port = 12345
 
-def receive_messages(chat_area):
-    global connected
-    while True:
+        if not self.username or not self.server_ip:
+            messagebox.showerror("Input Error", "Username and Server IP are required.")
+            master.destroy()
+            return
+
+        # Setup database
+        self.setup_database()
+        self.load_chat_history()
+
+        # Connect to server
         try:
-            msg = client_socket.recv(1024).decode()
-            if msg == "/banned":
-                messagebox.showwarning("Banned", "You are banned from the server.")
-                root.destroy()
-                return
-            display_message(chat_area, msg)
-        except:
-            break
+            self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.client_socket.connect((self.server_ip, self.port))
+        except Exception as e:
+            messagebox.showerror("Connection Failed", f"Could not connect to server:\n{e}")
+            master.destroy()
+            return
 
-def send_message(entry, chat_area):
-    msg = entry.get()
-    if msg and connected:
-        timestamp = current_time()
-        full_msg = f"{username} [{timestamp}]: {msg}"
+        # Start receiving thread
+        threading.Thread(target=self.receive_messages, daemon=True).start()
+
+        # Handle window close
+        master.protocol("WM_DELETE_WINDOW", self.close_connection)
+
+    def setup_database(self):
+        self.db_conn = sqlite3.connect("chat_history.db")
+        self.db_cursor = self.db_conn.cursor()
+        self.db_cursor.execute("""
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sender TEXT,
+                message TEXT,
+                timestamp TEXT
+            )
+        """)
+        self.db_conn.commit()
+
+    def load_chat_history(self):
+        self.chat_area.config(state='normal')
+        self.db_cursor.execute("SELECT sender, message, timestamp FROM messages")
+        for sender, message, timestamp in self.db_cursor.fetchall():
+            align = "right" if sender == self.username else "left"
+            self.chat_area.insert(tk.END, f"{sender}: {message}\n", align)
+            self.chat_area.insert(tk.END, f"{' ' * (4 if align == 'left' else 20)}[{timestamp}]\n", f"time_{align}")
+        self.chat_area.config(state='disabled')
+        self.chat_area.yview(tk.END)
+
+    def save_message_to_db(self, sender, message, timestamp):
+        self.db_cursor.execute("INSERT INTO messages (sender, message, timestamp) VALUES (?, ?, ?)",
+                               (sender, message, timestamp))
+        self.db_conn.commit()
+
+    def send_message(self, event=None):
+        msg = self.entry.get().strip()
+        if msg:
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            full_msg = f"{self.username}: {msg}"
+            try:
+                self.client_socket.sendall(full_msg.encode('utf-8'))
+                self.display_message(f"You: {msg}", timestamp, align="right")
+                self.save_message_to_db(self.username, msg, timestamp)
+                self.entry.delete(0, tk.END)
+            except:
+                messagebox.showerror("Send Failed", "Message could not be sent.")
+                self.master.destroy()
+
+    def receive_messages(self):
+        while True:
+            try:
+                msg = self.client_socket.recv(4096).decode('utf-8')
+                if not msg:
+                    break
+                timestamp = datetime.now().strftime("%H:%M:%S")
+                sender, message = msg.split(":", 1)
+                self.display_message(msg, timestamp, align="left")
+                self.save_message_to_db(sender.strip(), message.strip(), timestamp)
+            except:
+                break
+        self.client_socket.close()
+        self.master.quit()
+
+    def display_message(self, msg, timestamp, align="left"):
+        self.chat_area.config(state='normal')
+        self.chat_area.insert(tk.END, msg + "\n", align)
+        self.chat_area.insert(tk.END, f"{' ' * (4 if align == 'left' else 20)}[{timestamp}]\n", f"time_{align}")
+        self.chat_area.yview(tk.END)
+        self.chat_area.config(state='disabled')
+
+    def close_connection(self):
         try:
-            client_socket.send(full_msg.encode())
-            display_message(chat_area, f"You [{timestamp}]: {msg}")
-            entry.delete(0, tk.END)
+            self.client_socket.close()
+            self.db_conn.close()
         except:
-            display_message(chat_area, "❌ Failed to send message")
+            pass
+        self.master.destroy()
 
-def start_client(ip_entry, name_entry, chat_area, entry, join_btn):
-    global username, connected
-    username = name_entry.get().strip()
-    server_ip = ip_entry.get().strip()
-
-    if not server_ip:
-        messagebox.showerror("Error", "Please enter the server IP address.")
-        return
-    if not username:
-        messagebox.showerror("Error", "Please enter a username.")
-        return
-    try:
-        client_socket.connect((server_ip, PORT))
-        client_socket.send(username.encode())
-        connected = True
-        display_message(chat_area, f"✅ Connected to server at {server_ip} as {username}")
-        name_entry.config(state='disabled')
-        ip_entry.config(state='disabled')
-        entry.config(state='normal')
-        join_btn.config(state='disabled')
-        load_chat_history(chat_area)
-        threading.Thread(target=receive_messages, args=(chat_area,), daemon=True).start()
-    except Exception as e:
-        display_message(chat_area, f"❌ Connection failed: {e}")
-
-# GUI
-root = tk.Tk()
-root.title("Chat Client")
-root.geometry("700x500")
-root.config(bg="#f0f8ff")
-
-top_frame = tk.Frame(root, bg="#f0f8ff")
-top_frame.pack(pady=10)
-
-tk.Label(top_frame, text="Server IP:", bg="#f0f8ff").pack(side=tk.LEFT)
-ip_entry = tk.Entry(top_frame, width=15)
-ip_entry.pack(side=tk.LEFT, padx=5)
-ip_entry.insert(0, "127.0.0.1")  # Default to localhost
-
-tk.Label(top_frame, text="Username:", bg="#f0f8ff").pack(side=tk.LEFT)
-name_entry = tk.Entry(top_frame, width=15)
-name_entry.pack(side=tk.LEFT, padx=5)
-
-join_btn = tk.Button(top_frame, text="Join", bg="#00bfff", fg="white",
-                     command=lambda: start_client(ip_entry, name_entry, chat_area, entry, join_btn))
-join_btn.pack(side=tk.LEFT, padx=5)
-
-chat_area = scrolledtext.ScrolledText(root, width=80, height=20, state='disabled', font=("Segoe UI", 10))
-chat_area.tag_configure('left', justify='left', foreground='blue')
-chat_area.tag_configure('right', justify='right', foreground='green')
-chat_area.pack(padx=10, pady=5)
-
-bottom_frame = tk.Frame(root, bg="#f0f8ff")
-bottom_frame.pack(pady=10)
-
-entry = tk.Entry(bottom_frame, width=50)
-entry.pack(side=tk.LEFT, padx=5)
-entry.config(state='disabled')
-
-send_btn = tk.Button(bottom_frame, text="Send", bg="#32cd32", fg="white",
-                     command=lambda: send_message(entry, chat_area))
-send_btn.pack(side=tk.LEFT)
-
-root.mainloop()
+if __name__ == "__main__":
+    root = tk.Tk()
+    client = ChatClient(root)
+    root.mainloop()
