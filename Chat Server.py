@@ -1,127 +1,105 @@
 import socket
 import threading
 import tkinter as tk
-from tkinter import scrolledtext, messagebox
+from tkinter import scrolledtext
 
 class ChatServerGUI:
-    def init(self, master):
+    def _init_(self, master):
         self.master = master
         master.title("TCP Chat Server")
+        master.geometry("600x400")
 
-        self.text_area = scrolledtext.ScrolledText(master, state='disabled', wrap=tk.WORD, width=60, height=25)
-        self.text_area.pack(padx=10, pady=(10, 0))
+        self.start_button = tk.Button(master, text="Start Server", command=self.start_server, bg="#4caf50", fg="white")
+        self.start_button.pack(pady=5)
 
-        # Frame for buttons
-        button_frame = tk.Frame(master)
-        button_frame.pack(pady=10)
+        self.stop_button = tk.Button(master, text="Stop Server", command=self.stop_server, bg="#f44336", fg="white", state='disabled')
+        self.stop_button.pack(pady=5)
 
-        self.start_button = tk.Button(button_frame, text="Start Server", command=self.start_server)
-        self.start_button.pack(side=tk.LEFT, padx=10)
+        self.log_area = scrolledtext.ScrolledText(master, state='disabled', bg="#ffffff", fg="#000000", wrap=tk.WORD)
+        self.log_area.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
 
-        self.stop_button = tk.Button(button_frame, text="Stop Server", command=self.stop_server, state='disabled')
-        self.stop_button.pack(side=tk.LEFT, padx=10)
-
-        self.server_socket = None
         self.clients = []
-        self.is_running = False
-
-        self.HOST = '0.0.0.0'
-        self.PORT = 12345
-        self.lock = threading.Lock()
+        self.server_socket = None
+        self.running = False
 
     def log(self, message):
-        self.text_area.config(state='normal')
-        self.text_area.insert(tk.END, message + "\n")
-        self.text_area.yview(tk.END)
-        self.text_area.config(state='disabled')
-
-    def broadcast(self, message, sender_socket):
-        with self.lock:
-            for client in list(self.clients):
-                if client != sender_socket:
-                    try:
-                        client.sendall(message)
-                    except:
-                        client.close()
-                        self.clients.remove(client)
-
-    def handle_client(self, client_socket, address):
-        self.log(f"[+] Connected: {address}")
-        with self.lock:
-            self.clients.append(client_socket)
-
-        try:
-            while self.is_running:
-                msg = client_socket.recv(1024)
-                if not msg:
-                    break
-                self.log(f"[MSG] {address}: {msg.decode('utf-8')}")
-                self.broadcast(msg, client_socket)
-        except:
-            pass
-        finally:
-            with self.lock:
-                if client_socket in self.clients:
-                    self.clients.remove(client_socket)
-            client_socket.close()
-            self.log(f"[-] Disconnected: {address}")
-
-    def accept_clients(self):
-        while self.is_running:
-            try:
-                client_socket, address = self.server_socket.accept()
-                threading.Thread(target=self.handle_client, args=(client_socket, address), daemon=True).start()
-            except:
-                break  # Likely the server socket was closed
+        self.log_area.config(state='normal')
+        self.log_area.insert(tk.END, message + '\n')
+        self.log_area.config(state='disabled')
+        self.log_area.yview(tk.END)
 
     def start_server(self):
-        if self.is_running:
-            return
+        self.running = True
+        self.start_button.config(state='disabled')
+        self.stop_button.config(state='normal')
+        threading.Thread(target=self.run_server, daemon=True).start()
+        self.log("[SERVER] Starting...")
+
+    def run_server(self, host='0.0.0.0', port=12345):
+        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.server_socket.bind((self.HOST, self.PORT))
+            self.server_socket.bind((host, port))
             self.server_socket.listen()
-            self.is_running = True
-            self.log(f"[SERVER STARTED] Listening on {self.HOST}:{self.PORT}")
-
-            self.start_button.config(state='disabled')
-            self.stop_button.config(state='normal')
-
-            threading.Thread(target=self.accept_clients, daemon=True).start()
+            self.log(f"[SERVER] Listening on {host}:{port}")
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to start server:\n{e}")
+            self.log(f"[ERROR] Could not start server: {e}")
+            return
+
+        while self.running:
+            try:
+                client_socket, address = self.server_socket.accept()
+                self.clients.append(client_socket)
+                self.log(f"[CONNECTED] {address}")
+                threading.Thread(target=self.handle_client, args=(client_socket, address), daemon=True).start()
+            except:
+                break
+
+    def handle_client(self, client_socket, address):
+        while self.running:
+            try:
+                msg = client_socket.recv(4096)
+                if not msg:
+                    break
+                decoded = msg.decode('utf-8')
+                self.log(f"[{address}] {decoded}")
+                self.broadcast(decoded, client_socket)
+            except:
+                break
+        self.log(f"[DISCONNECTED] {address}")
+        if client_socket in self.clients:
+            self.clients.remove(client_socket)
+        client_socket.close()
+
+    def broadcast(self, message, sender_socket):
+        for client in self.clients:
+            if client != sender_socket:
+                try:
+                    client.sendall(message.encode('utf-8'))
+                except:
+                    if client in self.clients:
+                        self.clients.remove(client)
 
     def stop_server(self):
-        if not self.is_running:
-            return
-        self.is_running = False
-        self.log("[SERVER STOPPING]")
-
-        try:
-            if self.server_socket:
-                self.server_socket.close()
-        except:
-            pass
-
-        with self.lock:
-            for client in self.clients:
-                try:
-                    client.close()
-                except:
-                    pass
-            self.clients.clear()
-
-        self.log("[SERVER STOPPED]")
+        self.running = False
         self.start_button.config(state='normal')
         self.stop_button.config(state='disabled')
+        try:
+            for client in self.clients:
+                client.close()
+            self.clients.clear()
+            if self.server_socket:
+                self.server_socket.close()
+            self.log("[SERVER] Server stopped.")
+        except Exception as e:
+            self.log(f"[ERROR] Failed to stop server: {e}")
 
     def on_close(self):
-        self.stop_server()
+        if self.running:
+            self.stop_server()
         self.master.destroy()
 
-if __name__ == "__main__":
+if _name_ == "_main_":
     root = tk.Tk()
-    app = ChatServerGUI(root)
-    root.protocol("WM_DELETE_WINDOW", app.on_close)
+    server_gui = ChatServerGUI(root)
+    root.protocol("WM_DELETE_WINDOW", server_gui.on_close)
     root.mainloop()
